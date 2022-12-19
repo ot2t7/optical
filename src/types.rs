@@ -34,3 +34,10 @@ pub async fn read_string(buff: &mut Cursor<Vec<u8>>) -> Result<String> {
 
     return Ok(res);
 }
+
+pub async fn write_string(buff: &mut Vec<u8>, string: &str) -> Result<()> {
+    write_var_int(buff, string.len().try_into()?)?;
+    buff.append(&mut string.to_string().into_bytes());
+
+    return Ok(());
+}

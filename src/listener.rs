@@ -37,8 +37,40 @@ pub async fn start() -> Result<()> {
 
                         println!("Len: {length}, ID: {packet_id}");
 
-                        let mut writer = Cursor::new(vec![0u8; 1024]);
-                        writer.write_u8(0).await?;
+                        if length == 1 {
+                            let mut response = vec![];
+                            crate::types::write_var_int(&mut response, 0)?;
+                            crate::types::write_string(
+                                &mut response,
+                                r#"{
+    "version": {
+        "name": "69.420",
+        "protocol": 759
+    },
+    "players": {
+        "max": 100,
+        "online": 0,
+        "sample": []
+    },
+    "description": {
+        "text": "HELLLOOOOO FROM THE RUST SERVER!!!"
+    },
+    "previewsChat": true,
+    "enforcesSecureChat": true
+}"#,
+                            )
+                            .await?;
+                            let mut len_res = vec![];
+                            crate::types::write_var_int(
+                                &mut len_res,
+                                response.len().try_into().unwrap(),
+                            )?;
+                            len_res.append(&mut response);
+                            response = len_res;
+                            println!("responding with {:?}", response);
+                            std::fs::write("out", &response)?;
+                            socket.write_all(&response).await?;
+                        }
 
                         // Reset the buffer
                         buf = vec![0; 1024];
@@ -60,7 +92,3 @@ pub async fn start() -> Result<()> {
 
     return Ok(());
 }
-
-// Whenever you recieve a packet, essentially you have a Vec<u8>.
-// You then need to to turn this Vec<u8> and some state into &dyn Packet.
-// Once you have the &dyn Packet, you can

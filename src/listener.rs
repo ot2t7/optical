@@ -32,8 +32,13 @@ pub async fn start() -> Result<()> {
 
                         // Read packet information
                         let mut reader = Cursor::new(buf.clone());
-                        let length = read_var_int(&mut reader).await?;
-                        let packet_id = read_var_int(&mut reader).await?;
+                        let length = read_var_int(&mut reader)?;
+                        let packet_id = read_var_int(&mut reader)?;
+
+                        println!("Len: {length}, ID: {packet_id}");
+
+                        let mut writer = Cursor::new(vec![0u8; 1024]);
+                        writer.write_u8(0).await?;
 
                         // Reset the buffer
                         buf = vec![0; 1024];
@@ -55,3 +60,7 @@ pub async fn start() -> Result<()> {
 
     return Ok(());
 }
+
+// Whenever you recieve a packet, essentially you have a Vec<u8>.
+// You then need to to turn this Vec<u8> and some state into &dyn Packet.
+// Once you have the &dyn Packet, you can

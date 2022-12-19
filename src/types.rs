@@ -3,44 +3,33 @@ use std::io::Cursor;
 use anyhow::Result;
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
+use wasabi_leb128::{ReadLeb128, WriteLeb128};
 
 #[derive(Error, Debug)]
 pub enum ParsingError {
-    #[error("attempted parsing a varint with {0} bits, the max bits are 32")]
-    VarIntTooBig(u32),
+    #[error("attempted parsing a varint with {0} bytes, the max bytes are 5")]
+    VarIntTooBig(usize),
 }
 
-pub async fn read_var_int(packet: &mut Cursor<Vec<u8>>) -> Result<i32> {
-    const SEGMENT_BITS: u8 = 0x7f;
-    const CONTINUE_BIT: u8 = 0x80;
-
-    let mut value: i32 = 0;
-    let mut position: u8 = 0;
-
-    loop {
-        let current_byte = packet.read_u8().await?;
-        value |= ((current_byte & SEGMENT_BITS) as i32) << position;
-
-        if current_byte & CONTINUE_BIT == 0 {
-            break;
-        };
-
-        position += 7;
-
-        if position >= 32 {
-            return Err(ParsingError::VarIntTooBig(position as u32))?;
-        }
+pub fn read_var_int(buff: &mut Cursor<Vec<u8>>) -> Result<i32> {
+    let (value, bytes_read): (i32, usize) = buff.read_leb128()?;
+    if bytes_read > 5 {
+        return Err(ParsingError::VarIntTooBig(bytes_read).into());
     }
-
     return Ok(value);
 }
 
-pub async fn read_string(packet: &mut Cursor<Vec<u8>>) -> Result<String> {
-    let len = read_var_int(packet).await?;
+pub fn write_var_int(buff: &mut Vec<u8>, value: i32) -> Result<()> {
+    buff.write_leb128(value)?;
+    return Ok(());
+}
+
+pub async fn read_string(buff: &mut Cursor<Vec<u8>>) -> Result<String> {
+    let len = read_var_int(buff)?;
     let mut res = String::with_capacity(len as usize);
 
     for _ in 0..len {
-        res.push(packet.read_u8().await?.into());
+        res.push(buff.read_u8().await?.into());
     }
 
     return Ok(res);

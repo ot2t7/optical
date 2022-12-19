@@ -68,7 +68,6 @@ pub async fn start() -> Result<()> {
                             len_res.append(&mut response);
                             response = len_res;
                             println!("responding with {:?}", response);
-                            std::fs::write("out", &response)?;
                             socket.write_all(&response).await?;
                         }
 

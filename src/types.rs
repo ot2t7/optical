@@ -1,7 +1,4 @@
-use std::io::Cursor;
-
 use anyhow::Result;
-use bytes::{Buf, BytesMut};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use wasabi_leb128::{ReadLeb128, WriteLeb128};

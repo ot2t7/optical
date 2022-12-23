@@ -1,7 +1,6 @@
 use crate::types::{read_string, read_var_int};
 use anyhow::Result;
-use bytes::{BufMut, BytesMut};
-use std::io::Cursor;
+use async_recursion::async_recursion;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -45,46 +44,75 @@ pub async fn start() -> Result<()> {
     return Ok(());
 }
 
-async fn manage_connection(socket: &mut TcpStream) -> Result<()> {
-    // Reserve a buffer for the packets at 2 mb, will grow in size as needed
-    let mut buf = vec![0u8; 1024 * 1024 * 2];
-    // Create state for the connection
-    let mut state = ProtocolState::Void;
+pub struct Sentinel<'a> {
+    buf: Vec<u8>,
+    protocol: ProtocolState,
+    socket: &'a mut TcpStream,
+}
+
+fn new_sentinel(socket: &mut TcpStream) -> Sentinel {
+    return Sentinel {
+        buf: vec![],
+        protocol: ProtocolState::Void,
+        socket: socket,
+    };
+}
+
+async fn populate_sentinel(sentinel: &mut Sentinel<'_>) -> Result<Option<()>> {
+    let n = sentinel.socket.read_buf(&mut sentinel.buf).await?;
+    if n == 0 {
+        return Ok(None);
+    }
+    return Ok(Some(()));
+}
+
+#[async_recursion]
+async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
+    // Attempt reading a packet length
+    let reader = sentinel.buf.as_slice();
+    let (length_data, length_tag) = match read_var_int(reader) {
+        Ok(n) => n,
+        Err(_) => {
+            // Not enough data, populate
+            match populate_sentinel(sentinel).await? {
+                None => return Ok(None),
+                _ => {}
+            };
+            return read_packet(sentinel).await;
+        }
+    };
+
+    // Check if the buffer has enough to pop packet
+    let length_data: usize = length_data.try_into()?;
+    let length_entire_packet = length_data + length_tag;
+    if length_entire_packet > sentinel.buf.len() || length_data == 0 {
+        // Entire packet isn't buffered yet, populate
+        match populate_sentinel(sentinel).await? {
+            None => return Ok(None),
+            _ => {}
+        };
+        return read_packet(sentinel).await;
+    } else {
+        // An entire packet is available
+
+        // Split the buffer
+        let remaining_buf = sentinel.buf.split_off(length_entire_packet);
+        // Get the packet
+        let mut packet = std::mem::replace(&mut sentinel.buf, remaining_buf);
+        // Truncate it so the length is accurate
+        packet.truncate(length_entire_packet);
+
+        return Ok(Some(packet));
+    }
+}
+
+async fn manage_connection(mut socket: &mut TcpStream) -> Result<()> {
+    let mut sentinel = new_sentinel(&mut socket);
 
     loop {
-        // Read the data
-        let n = socket.read_buf(&mut buf).await?;
-
-        // The connection closed without error
-        if n == 0 {
-            return Ok(());
-        }
-
-        // Attempt reading some packet info
-        let reader = buf.as_slice();
-        let length = match read_var_int(reader) {
-            Ok(n) => n,
-            Err(_) => continue, // Read more data
-        };
-
-        // Can we process an entire packet?
-        let length_usize: usize = length.0.try_into()?;
-        let length_entire_packet = length_usize + length.1;
-        if length_entire_packet > buf.len() || buf.len() == 0 {
-            // An entire packet isn't buffered yet
-            continue;
-        } else {
-            // We can process a packet
-            println!(
-                "Packet len: {length_usize}, packet id: {}",
-                read_var_int(reader)?.0
-            );
-
-            // Split the buffer
-            let remaining_buf = buf.split_off(length_entire_packet);
-
-            // Reset the buffer
-            buf = remaining_buf;
+        match read_packet(&mut sentinel).await? {
+            None => return Ok(()),
+            _ => {}
         }
     }
 }

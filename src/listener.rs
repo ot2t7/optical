@@ -58,6 +58,8 @@ fn new_sentinel(socket: &mut TcpStream) -> Sentinel {
     };
 }
 
+/// Reads some bytes from the sentinel's tcp socket and
+/// populates the buffer.
 async fn populate_sentinel(sentinel: &mut Sentinel<'_>) -> Result<Option<()>> {
     let n = sentinel.socket.read_buf(&mut sentinel.buf).await?;
     if n == 0 {
@@ -66,11 +68,14 @@ async fn populate_sentinel(sentinel: &mut Sentinel<'_>) -> Result<Option<()>> {
     return Ok(Some(()));
 }
 
+/// Returns a complete packet from a sentinel. Returns None if
+/// the connection closed and the sentinel can no longer provide
+/// packets.
 #[async_recursion]
 async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
     // Attempt reading a packet length
     let reader = sentinel.buf.as_slice();
-    let (length_data, length_tag) = match read_var_int(reader) {
+    let length = match read_var_int(reader) {
         Ok(n) => n,
         Err(_) => {
             // Not enough data, populate
@@ -81,6 +86,8 @@ async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
             return read_packet(sentinel).await;
         }
     };
+    let length_data = length.value;
+    let length_tag = length.size;
 
     // Check if the buffer has enough to pop packet
     let length_data: usize = length_data.try_into()?;

@@ -1,6 +1,7 @@
-use crate::types::{read_string, read_var_int};
+use crate::types::read_var_int;
 use anyhow::Result;
 use async_recursion::async_recursion;
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -117,9 +118,25 @@ async fn manage_connection(mut socket: &mut TcpStream) -> Result<()> {
     let mut sentinel = new_sentinel(&mut socket);
 
     loop {
-        match read_packet(&mut sentinel).await? {
+        let packet = match read_packet(&mut sentinel).await? {
             None => return Ok(()),
-            _ => {}
+            Some(v) => v,
+        };
+        let mut reader = packet.as_slice();
+        let packet_len = read_var_int(&mut reader)?;
+        let packet_id = read_var_int(&mut reader)?;
+        if packet_len.value == 32 {
+            println!("Join request is here!");
+            let t: Test = crate::packet_format::deserializer::from_bytes(reader)?;
+            println!("{:#?}", t);
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Test {
+    version: i32,
+    server_address: String,
+    server_port: u16,
+    next_state: i32,
 }

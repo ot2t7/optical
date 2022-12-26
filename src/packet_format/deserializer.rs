@@ -1,22 +1,40 @@
+use std::io::Cursor;
+
 use super::error::Error;
-use crate::types::{read_string, read_unsigned_short, read_var_int, read_var_long};
+use super::types::{read_string, read_unsigned_short, read_var_int, read_var_long};
+use serde::de::MapAccess;
 use serde::{de::SeqAccess, Deserialize};
 
 pub struct Deserializer<'de> {
-    input: &'de [u8],
+    input: &'de mut Cursor<Vec<u8>>,
+    /// Did this deserializer already process the packet id?
+    id_read: bool,
 }
 
 impl<'de> Deserializer<'de> {
-    pub fn from_bytes(input: &'de [u8]) -> Self {
-        return Deserializer { input };
+    pub fn from_bytes(input: &'de mut Cursor<Vec<u8>>, id_read: bool) -> Self {
+        return Deserializer { input, id_read };
     }
 }
 
-pub fn from_bytes<'a, T>(input: &'a [u8]) -> Result<T, Error>
+pub fn from_bytes<'a, T>(input: &'a mut Cursor<Vec<u8>>) -> Result<T, Error>
 where
     T: Deserialize<'a>,
 {
-    let mut deserializer = Deserializer::from_bytes(input);
+    read_var_int(input).map_err(|_| Error::MalformedVarInt)?; // packet length
+    read_var_int(input).map_err(|_| Error::MalformedVarInt)?; // packet id
+    let mut deserializer = Deserializer::from_bytes(input, true);
+    let t = T::deserialize(&mut deserializer)?;
+    return Ok(t);
+}
+
+/// When the return is a `Box<dyn Packet>` or likewise
+pub fn from_bytes_generic<'a, T>(input: &'a mut Cursor<Vec<u8>>) -> Result<T, Error>
+where
+    T: Deserialize<'a>,
+{
+    read_var_int(input).map_err(|_| Error::MalformedVarInt)?; // packet length
+    let mut deserializer = Deserializer::from_bytes(input, false);
     let t = T::deserialize(&mut deserializer)?;
     return Ok(t);
 }
@@ -66,7 +84,10 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return match read_var_long(self.input) {
+            Ok(n) => visitor.visit_i64(n.value),
+            Err(_) => Err(Error::MalformedVarInt),
+        };
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -125,13 +146,22 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        println!("str!");
+        self.deserialize_string(visitor)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
+        if self.id_read == false {
+            self.id_read = true;
+            let id = match read_var_int(self.input) {
+                Ok(n) => Ok(n.value),
+                Err(_) => Err(Error::MalformedVarInt),
+            }?;
+            return visitor.visit_string(id.to_string());
+        }
         return match read_string(self.input) {
             Ok(n) => visitor.visit_string(n),
             Err(_) => Err(Error::MalformedVarInt),
@@ -260,6 +290,10 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
+/// All structs, maps, and arrays are represented as sequences
+/// with no data for keys in the minecraft packet format. A
+/// `Flatten` describes this behavior through its access
+/// implementations.
 struct Flatten<'a, 'de> {
     de: &'a mut Deserializer<'de>,
 }

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Cursor, Read};
 
 use anyhow::Result;
 use wasabi_leb128::{ReadLeb128, WriteLeb128};
@@ -8,13 +8,7 @@ pub struct VarInt {
     pub size: usize,
 }
 
-impl Into<i32> for VarInt {
-    fn into(self) -> i32 {
-        return self.value;
-    }
-}
-
-pub fn read_var_int(mut buf: &[u8]) -> Result<VarInt> {
+pub fn read_var_int(buf: &mut Cursor<Vec<u8>>) -> Result<VarInt> {
     let res = buf.read_leb128()?;
     return Ok(VarInt {
         value: res.0,
@@ -32,13 +26,7 @@ pub struct VarLong {
     pub size: usize,
 }
 
-impl Into<i64> for VarLong {
-    fn into(self) -> i64 {
-        return self.value;
-    }
-}
-
-pub fn read_var_long(mut buf: &[u8]) -> Result<VarLong> {
+pub fn read_var_long(buf: &mut Cursor<Vec<u8>>) -> Result<VarLong> {
     let res = buf.read_leb128()?;
     return Ok(VarLong {
         value: res.0,
@@ -51,7 +39,7 @@ pub fn write_var_long(buf: &mut Vec<u8>, value: i64) -> Result<()> {
     return Ok(());
 }
 
-pub fn read_string(mut buf: &[u8]) -> Result<String> {
+pub fn read_string(buf: &mut Cursor<Vec<u8>>) -> Result<String> {
     let len = read_var_int(buf)?;
     let mut res = String::with_capacity(len.value as usize);
 
@@ -72,8 +60,8 @@ pub fn write_string(buf: &mut Vec<u8>, string_to_pack: impl Into<String>) -> Res
     return Ok(());
 }
 
-pub fn read_unsigned_short(mut buf: &[u8]) -> Result<u16> {
+pub fn read_unsigned_short(buf: &mut Cursor<Vec<u8>>) -> Result<u16> {
     let mut bytes = [0u8; 2];
     buf.read_exact(&mut bytes)?;
-    return Ok(u16::from_le_bytes(bytes));
+    return Ok(u16::from_be_bytes(bytes));
 }

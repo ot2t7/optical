@@ -1,4 +1,9 @@
-use crate::types::read_var_int;
+use std::io::Cursor;
+
+use crate::{
+    packet_defs::{Handshake, PingRequest, StatusRequest},
+    packet_format::{deserializer, tags::VoidPacket, types::read_var_int},
+};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use serde::{Deserialize, Serialize};
@@ -75,8 +80,8 @@ async fn populate_sentinel(sentinel: &mut Sentinel<'_>) -> Result<Option<()>> {
 #[async_recursion]
 async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
     // Attempt reading a packet length
-    let reader = sentinel.buf.as_slice();
-    let length = match read_var_int(reader) {
+    let mut reader = Cursor::new(std::mem::take(&mut sentinel.buf));
+    let length = match read_var_int(&mut reader) {
         Ok(n) => n,
         Err(_) => {
             // Not enough data, populate
@@ -89,6 +94,9 @@ async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
     };
     let length_data = length.value;
     let length_tag = length.size;
+
+    // Calculations after this need packet as a vec, not a cursor
+    sentinel.buf = reader.into_inner();
 
     // Check if the buffer has enough to pop packet
     let length_data: usize = length_data.try_into()?;
@@ -117,20 +125,31 @@ async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
 async fn manage_connection(mut socket: &mut TcpStream) -> Result<()> {
     let mut sentinel = new_sentinel(&mut socket);
 
-    loop {
-        let packet = match read_packet(&mut sentinel).await? {
-            None => return Ok(()),
-            Some(v) => v,
-        };
-        let mut reader = packet.as_slice();
-        let packet_len = read_var_int(&mut reader)?;
-        let packet_id = read_var_int(&mut reader)?;
-        if packet_len.value == 32 {
-            println!("Join request is here!");
-            let t: Test = crate::packet_format::deserializer::from_bytes(reader)?;
-            println!("{:#?}", t);
-        }
-    }
+    // Recieve a handshake packet
+    let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
+        None => return Ok(()),
+        Some(v) => v,
+    });
+    let handshake: Handshake = deserializer::from_bytes(reader)?;
+    println!("{:#?}", handshake);
+
+    // Recieve a status packet
+    let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
+        None => return Ok(()),
+        Some(v) => v,
+    });
+    let status: StatusRequest = deserializer::from_bytes(reader)?;
+    println!("{:#?}", status);
+
+    // Recieve a ping request
+    let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
+        None => return Ok(()),
+        Some(v) => v,
+    });
+    let ping: PingRequest = deserializer::from_bytes(reader)?;
+    println!("{:#?}", ping);
+
+    return Ok(());
 }
 
 #[derive(Serialize, Deserialize, Debug)]

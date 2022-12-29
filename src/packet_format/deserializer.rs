@@ -1,7 +1,7 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
 use super::error::Error;
-use super::types::{read_string, read_unsigned_short, read_var_int, read_var_long};
+use super::types::{read_string, read_var_int, read_var_long, VarInt};
 use serde::de::MapAccess;
 use serde::{de::SeqAccess, Deserialize};
 
@@ -53,7 +53,11 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut byte = [0u8];
+        self.input
+            .read_exact(&mut byte)
+            .map_err(|_| Error::MalformedBool)?;
+        return visitor.visit_bool(byte[0] == 1);
     }
 
     fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -74,10 +78,17 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
+        let mut bytes = [0u8; 4];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedI32)?;
+        return visitor.visit_i32(i32::from_be_bytes(bytes));
+
+        /*
         return match read_var_int(self.input) {
             Ok(n) => visitor.visit_i32(n.value),
             Err(_) => Err(Error::MalformedVarInt),
-        };
+        }; */
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -94,17 +105,22 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut byte = [0u8];
+        match self.input.read_exact(&mut byte) {
+            Ok(_) => visitor.visit_u8(byte[0]),
+            Err(_) => return Err(Error::NoMoreBytes),
+        }
     }
 
     fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        return match read_unsigned_short(self.input) {
-            Ok(n) => visitor.visit_u16(n),
-            Err(_) => Err(Error::MalformedUnsignedShort),
-        };
+        let mut bytes = [0u8; 2];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedU16)?;
+        return visitor.visit_u16(u16::from_be_bytes(bytes));
     }
 
     fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -229,7 +245,7 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return visitor.visit_seq(Flatten::new(self));
     }
 
     fn deserialize_tuple_struct<V>(
@@ -260,6 +276,7 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
+        if name == "VarInt" && fields == ["value", "size"] {}
         return self.deserialize_seq(visitor);
     }
 

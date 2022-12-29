@@ -1,8 +1,12 @@
 use std::io::Cursor;
 
 use crate::{
-    packet_defs::{Handshake, PingRequest, StatusRequest},
-    packet_format::{deserializer, tags::VoidPacket, types::read_var_int},
+    packet_defs::{Handshake, LoginStart, PingRequest, StatusRequest},
+    packet_format::{
+        deserializer,
+        tags::VoidPacket,
+        types::{read_var_int, write_string, write_var_int},
+    },
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
@@ -133,29 +137,49 @@ async fn manage_connection(mut socket: &mut TcpStream) -> Result<()> {
     let handshake: Handshake = deserializer::from_bytes(reader)?;
     println!("{:#?}", handshake);
 
-    // Recieve a status packet
-    let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
-        None => return Ok(()),
-        Some(v) => v,
-    });
-    let status: StatusRequest = deserializer::from_bytes(reader)?;
-    println!("{:#?}", status);
+    if handshake.next_state.value == 1 {
+        // Recieve a status packet
+        let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
+            None => return Ok(()),
+            Some(v) => v,
+        });
+        let status: StatusRequest = deserializer::from_bytes(reader)?;
+        println!("{:#?}", status);
 
-    // Recieve a ping request
-    let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
-        None => return Ok(()),
-        Some(v) => v,
-    });
-    let ping: PingRequest = deserializer::from_bytes(reader)?;
-    println!("{:#?}", ping);
+        // Recieve a ping request
+        let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
+            None => return Ok(()),
+            Some(v) => v,
+        });
+        let ping: PingRequest = deserializer::from_bytes(reader)?;
+        println!("{:#?}", ping);
+    } else {
+        // Recieve a login start packet
+        let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
+            None => return Ok(()),
+            Some(v) => v,
+        });
+        let login: LoginStart = deserializer::from_bytes(reader)?;
+        println!("{:#?}", login);
+        // Disconnect the user
+        let mut buf: Vec<u8> = Vec::new();
+        write_var_int(&mut buf, 0x00)?;
+        write_string(
+            &mut buf,
+            String::from(format!(
+                r#"{{
+    "text": "You a whole bingle bop, {}!",
+    "bold": true,
+    "color": "green"
+}}"#,
+                login.player_username
+            )),
+        )?;
+        let mut length = Vec::new();
+        write_var_int(&mut length, buf.len().try_into().unwrap())?;
+        buf = [length, buf].concat();
+        socket.write_all(&buf).await?;
+    }
 
     return Ok(());
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Test {
-    version: i32,
-    server_address: String,
-    server_port: u16,
-    next_state: i32,
 }

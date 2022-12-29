@@ -15,7 +15,13 @@ pub enum Error {
     #[error("failed parsing a string")]
     MalformedString,
     #[error("failed parsing an unsigned short")]
-    MalformedUnsignedShort,
+    MalformedU16,
+    #[error("failed reading a byte")]
+    NoMoreBytes,
+    #[error("failed reading a 32 bit signed integer")]
+    MalformedI32,
+    #[error("failed parsing a boolean")]
+    MalformedBool,
 }
 
 impl ser::Error for Error {

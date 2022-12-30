@@ -1,4 +1,7 @@
-use crate::packet_format::{tags::*, types::VarInt};
+use crate::packet_format::{
+    tags::*,
+    types::{MinecraftUuid, VarInt},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -18,7 +21,7 @@ impl StatusPacket for StatusRequest {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PingRequest {
-    pub rand_number: [u16; 4],
+    pub rand_number: i64,
 }
 #[typetag::serde(name = "1")]
 impl StatusPacket for PingRequest {}
@@ -26,8 +29,15 @@ impl StatusPacket for PingRequest {}
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LoginStart {
     pub player_username: String,
-    pub has_uuid: bool,
-    pub uuid: [i32; 2],
+    pub uuid: Option<MinecraftUuid>,
 }
 #[typetag::serde(name = "0")]
 impl LoginPacket for PingRequest {}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EncryptionResponse {
+    pub shared_secret: Vec<u8>,
+    pub verify_token: Vec<u8>,
+}
+#[typetag::serde(name = "1")]
+impl LoginPacket for EncryptionResponse {}

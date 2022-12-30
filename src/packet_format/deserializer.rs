@@ -1,8 +1,9 @@
 use std::io::{Cursor, Read};
 
 use super::error::Error;
-use super::types::{read_string, read_var_int, read_var_long, VarInt};
-use serde::de::MapAccess;
+use super::types::{read_string, read_var_int, read_var_long, MinecraftUuid, VarInt, VarLong};
+use serde::de::Error as SerdeError;
+use serde::de::Visitor;
 use serde::{de::SeqAccess, Deserialize};
 
 pub struct Deserializer<'de> {
@@ -83,22 +84,17 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
             .read_exact(&mut bytes)
             .map_err(|_| Error::MalformedI32)?;
         return visitor.visit_i32(i32::from_be_bytes(bytes));
-
-        /*
-        return match read_var_int(self.input) {
-            Ok(n) => visitor.visit_i32(n.value),
-            Err(_) => Err(Error::MalformedVarInt),
-        }; */
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        return match read_var_long(self.input) {
-            Ok(n) => visitor.visit_i64(n.value),
-            Err(_) => Err(Error::MalformedVarInt),
-        };
+        let mut bytes = [0u8; 8];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedI64)?;
+        return visitor.visit_i64(i64::from_be_bytes(bytes));
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -162,7 +158,6 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("str!");
         self.deserialize_string(visitor)
     }
 
@@ -172,16 +167,12 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         if self.id_read == false {
             self.id_read = true;
-            let id = match read_var_int(self.input) {
-                Ok(n) => Ok(n.value),
-                Err(_) => Err(Error::MalformedVarInt),
-            }?;
+            let id = read_var_int(self.input)
+                .map_err(|_| Error::MalformedVarInt)?
+                .value;
             return visitor.visit_string(id.to_string());
         }
-        return match read_string(self.input) {
-            Ok(n) => visitor.visit_string(n),
-            Err(_) => Err(Error::MalformedVarInt),
-        };
+        return visitor.visit_string(read_string(self.input).map_err(|_| Error::MalformedString)?);
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -202,7 +193,16 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut byte = [0u8];
+        self.input
+            .read_exact(&mut byte)
+            .map_err(|_| Error::MalformedBool)?;
+        let is_some = byte[0] == 1;
+        if is_some {
+            return visitor.visit_some(self);
+        } else {
+            return visitor.visit_none();
+        }
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -276,7 +276,6 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        if name == "VarInt" && fields == ["value", "size"] {}
         return self.deserialize_seq(visitor);
     }
 
@@ -305,6 +304,11 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         todo!()
     }
+
+    // Hints to types like UUID's that this format is not self-describing/human readable
+    fn is_human_readable(&self) -> bool {
+        false
+    }
 }
 
 /// All structs, maps, and arrays are represented as sequences
@@ -329,5 +333,103 @@ impl<'de, 'a> SeqAccess<'de> for Flatten<'a, 'de> {
         T: serde::de::DeserializeSeed<'de>,
     {
         return seed.deserialize(&mut *self.de).map(Some);
+    }
+}
+
+// Special deserialization logic for varints
+
+impl<'de> Deserialize<'de> for VarInt {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct VarIntVisitor;
+
+        impl<'de> Visitor<'de> for VarIntVisitor {
+            type Value = Result<VarInt, Error>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a var int")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                pub const CONTINUE_BIT: u8 = 0b10000000;
+                let mut buf = [0u8; 5];
+                let mut filled = 0;
+                loop {
+                    let next_byte: u8 = match seq.next_element()? {
+                        Some(n) => n,
+                        None => return Ok(Err(Error::MalformedVarInt)),
+                    };
+                    buf[filled] = next_byte;
+                    filled += 1;
+                    if next_byte & CONTINUE_BIT == 0 {
+                        break;
+                    }
+                }
+                return Ok(read_var_int(&mut Cursor::new(buf.to_vec()))
+                    .map_err(|_| Error::MalformedVarInt));
+            }
+        }
+
+        let res = deserializer.deserialize_seq(VarIntVisitor)?;
+        return Ok(res.map_err(|e| SerdeError::custom(e))?);
+    }
+}
+
+// Special deserialization logic for var longs
+
+impl<'de> Deserialize<'de> for VarLong {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct VarLongVisitor;
+
+        impl<'de> Visitor<'de> for VarLongVisitor {
+            type Value = Result<VarLong, Error>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a var long")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                pub const CONTINUE_BIT: u8 = 0b10000000;
+                let mut buf = [0u8; 10];
+                let mut filled = 0;
+                loop {
+                    let next_byte: u8 = match seq.next_element()? {
+                        Some(n) => n,
+                        None => return Ok(Err(Error::MalformedVarLong)),
+                    };
+                    buf[filled] = next_byte;
+                    filled += 1;
+                    if next_byte & CONTINUE_BIT == 0 {
+                        break;
+                    }
+                }
+                return Ok(read_var_long(&mut Cursor::new(buf.to_vec()))
+                    .map_err(|_| Error::MalformedVarLong));
+            }
+        }
+
+        let res = deserializer.deserialize_seq(VarLongVisitor)?;
+        return Ok(res.map_err(|e| SerdeError::custom(e))?);
+    }
+}
+
+impl<'de> Deserialize<'de> for MinecraftUuid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let inner = uuid::serde::compact::deserialize(deserializer)?;
+        return Ok(MinecraftUuid(inner));
     }
 }

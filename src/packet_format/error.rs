@@ -10,8 +10,10 @@ pub enum Error {
 
     #[error("'any' types are unparsable")]
     ParsingAny,
-    #[error("failed parsing a varint")]
+    #[error("failed parsing a var int")]
     MalformedVarInt,
+    #[error("failed parsing a var long")]
+    MalformedVarLong,
     #[error("failed parsing a string")]
     MalformedString,
     #[error("failed parsing an unsigned short")]
@@ -20,6 +22,8 @@ pub enum Error {
     NoMoreBytes,
     #[error("failed reading a 32 bit signed integer")]
     MalformedI32,
+    #[error("failed reading a 64 bit signed integer")]
+    MalformedI64,
     #[error("failed parsing a boolean")]
     MalformedBool,
 }

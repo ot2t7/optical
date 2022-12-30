@@ -15,6 +15,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+use unwrap_or::{unwrap_ok_or, unwrap_some_or};
 
 enum ProtocolState {
     /// Before the status and login states
@@ -82,7 +83,7 @@ async fn populate_sentinel(sentinel: &mut Sentinel<'_>) -> Result<Option<()>> {
 /// the connection closed and the sentinel can no longer provide
 /// packets.
 #[async_recursion]
-async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
+async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Cursor<Vec<u8>>>> {
     // Attempt reading a packet length
     let mut reader = Cursor::new(std::mem::take(&mut sentinel.buf));
     let length = match read_var_int(&mut reader) {
@@ -122,7 +123,7 @@ async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Vec<u8>>> {
         // Truncate it so the length is accurate
         packet.truncate(length_entire_packet);
 
-        return Ok(Some(packet));
+        return Ok(Some(Cursor::new(packet)));
     }
 }
 
@@ -130,35 +131,23 @@ async fn manage_connection(mut socket: &mut TcpStream) -> Result<()> {
     let mut sentinel = new_sentinel(&mut socket);
 
     // Recieve a handshake packet
-    let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
-        None => return Ok(()),
-        Some(v) => v,
-    });
+    let reader = &mut unwrap_some_or!(read_packet(&mut sentinel).await?, return Ok(()));
     let handshake: Handshake = deserializer::from_bytes(reader)?;
     println!("{:#?}", handshake);
 
     if handshake.next_state.value == 1 {
         // Recieve a status packet
-        let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
-            None => return Ok(()),
-            Some(v) => v,
-        });
+        let reader = &mut unwrap_some_or!(read_packet(&mut sentinel).await?, return Ok(()));
         let status: StatusRequest = deserializer::from_bytes(reader)?;
         println!("{:#?}", status);
 
         // Recieve a ping request
-        let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
-            None => return Ok(()),
-            Some(v) => v,
-        });
+        let reader = &mut unwrap_some_or!(read_packet(&mut sentinel).await?, return Ok(()));
         let ping: PingRequest = deserializer::from_bytes(reader)?;
         println!("{:#?}", ping);
     } else {
         // Recieve a login start packet
-        let reader = &mut Cursor::new(match read_packet(&mut sentinel).await? {
-            None => return Ok(()),
-            Some(v) => v,
-        });
+        let reader = &mut unwrap_some_or!(read_packet(&mut sentinel).await?, return Ok(()));
         let login: LoginStart = deserializer::from_bytes(reader)?;
         println!("{:#?}", login);
         // Disconnect the user
@@ -168,10 +157,10 @@ async fn manage_connection(mut socket: &mut TcpStream) -> Result<()> {
             &mut buf,
             String::from(format!(
                 r#"{{
-    "text": "You a whole bingle bop, {}!",
-    "bold": true,
-    "color": "green"
-}}"#,
+        "text": "You a whole bingle bop, {}!",
+        "bold": true,
+        "color": "green"
+    }}"#,
                 login.player_username
             )),
         )?;

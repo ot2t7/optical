@@ -10,12 +10,11 @@ use crate::{
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
-use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use unwrap_or::{unwrap_ok_or, unwrap_some_or};
+use unwrap_or::unwrap_some_or;
 
 enum ProtocolState {
     /// Before the status and login states

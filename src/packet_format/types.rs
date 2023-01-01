@@ -12,6 +12,16 @@ pub struct VarInt {
     pub size: usize,
 }
 
+impl From<i32> for VarInt {
+    fn from(value: i32) -> Self {
+        return VarInt {
+            value,
+            // TODO: Make this accurate, but quickly generatyed
+            size: wasabi_leb128::max_bytes::<i32>(),
+        };
+    }
+}
+
 pub fn read_var_int(buf: &mut Cursor<Vec<u8>>) -> Result<VarInt> {
     let res = buf.read_leb128()?;
     return Ok(VarInt {
@@ -29,6 +39,16 @@ pub fn write_var_int(buf: &mut Vec<u8>, value: i32) -> Result<()> {
 pub struct VarLong {
     pub value: i64,
     pub size: usize,
+}
+
+impl From<i64> for VarLong {
+    fn from(value: i64) -> Self {
+        return VarLong {
+            value,
+            // TODO: Make this accurate, but quickly generatyed
+            size: wasabi_leb128::max_bytes::<i64>(),
+        };
+    }
 }
 
 pub fn read_var_long(buf: &mut Cursor<Vec<u8>>) -> Result<VarLong> {

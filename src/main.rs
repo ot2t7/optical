@@ -1,6 +1,3 @@
-use std::io::{Cursor, Read};
-use wasabi_leb128::ReadLeb128;
-
 use anyhow::Result;
 
 mod listener;
@@ -21,18 +18,5 @@ async fn main() -> Result<()> {
     */
 
     listener::start().await?;
-    return Ok(());
-}
-
-fn read_something(buf: &mut Cursor<Vec<u8>>) -> Result<()> {
-    let mut byte = [0u8];
-    buf.read_exact(&mut byte)?;
-    println!("{}", byte[0]);
-    return Ok(());
-}
-
-fn read_leb(buf: &mut Cursor<Vec<u8>>) -> Result<()> {
-    let val: i32 = buf.read_leb128()?.0;
-    println!("{}", val);
     return Ok(());
 }

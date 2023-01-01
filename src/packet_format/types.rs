@@ -6,7 +6,7 @@ use std::{
 use anyhow::Result;
 use wasabi_leb128::{ReadLeb128, WriteLeb128};
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct VarInt {
     pub value: i32,
     pub size: usize,
@@ -30,12 +30,11 @@ pub fn read_var_int(buf: &mut Cursor<Vec<u8>>) -> Result<VarInt> {
     });
 }
 
-pub fn write_var_int(buf: &mut Vec<u8>, value: i32) -> Result<()> {
-    buf.write_leb128(value)?;
-    return Ok(());
+pub fn write_var_int(buf: &mut Vec<u8>, value: i32) -> Result<usize> {
+    return Ok(buf.write_leb128(value)?);
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct VarLong {
     pub value: i64,
     pub size: usize,
@@ -59,9 +58,8 @@ pub fn read_var_long(buf: &mut Cursor<Vec<u8>>) -> Result<VarLong> {
     });
 }
 
-pub fn write_var_long(buf: &mut Vec<u8>, value: i64) -> Result<()> {
-    buf.write_leb128(value)?;
-    return Ok(());
+pub fn write_var_long(buf: &mut Vec<u8>, value: i64) -> Result<usize> {
+    return Ok(buf.write_leb128(value)?);
 }
 
 pub fn read_string(buf: &mut Cursor<Vec<u8>>) -> Result<String> {

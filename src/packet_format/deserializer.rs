@@ -2,8 +2,8 @@ use std::io::{Cursor, Read};
 
 use super::error::Error;
 use super::types::{read_string, read_var_int, read_var_long, MinecraftUuid, VarInt, VarLong};
-use serde::de::Error as SerdeError;
 use serde::de::Visitor;
+use serde::de::{Error as SerdeError, MapAccess};
 use serde::{de::SeqAccess, Deserialize};
 
 pub struct Deserializer<'de> {
@@ -238,14 +238,19 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        return visitor.visit_seq(Flatten::new(self));
+        // Sequences are a collection of each adjacent element,
+        // with no padding or keys. The collection is prefixed with
+        // the length of the sequence as a varint.
+        return visitor.visit_seq(Flatten::new(self, true)?);
     }
 
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        return visitor.visit_seq(Flatten::new(self));
+        // Tuples are a collection of each adjacent element, with
+        // no padding or keys. The collection has no length prefix.
+        return visitor.visit_seq(Flatten::new(self, false)?);
     }
 
     fn deserialize_tuple_struct<V>(
@@ -264,7 +269,9 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        // Maps are a collection of each adjacent element, with no
+        // padding or keys. The collection has no length prefix.
+        return visitor.visit_map(Flatten::new(self, false)?);
     }
 
     fn deserialize_struct<V>(
@@ -311,17 +318,24 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
-/// All structs, maps, and arrays are represented as sequences
+/// All structs, maps, arrays are represented as sequences
 /// with no data for keys in the minecraft packet format. A
 /// `Flatten` describes this behavior through its access
 /// implementations.
 struct Flatten<'a, 'de> {
     de: &'a mut Deserializer<'de>,
+    size: Option<VarInt>,
 }
 
 impl<'a, 'de> Flatten<'a, 'de> {
-    fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Flatten { de }
+    fn new(de: &'a mut Deserializer<'de>, read_length: bool) -> Result<Self, Error> {
+        let size;
+        if read_length {
+            size = read_var_int(de.input).ok();
+        } else {
+            size = None;
+        }
+        return Ok(Flatten { de, size });
     }
 }
 
@@ -333,6 +347,36 @@ impl<'de, 'a> SeqAccess<'de> for Flatten<'a, 'de> {
         T: serde::de::DeserializeSeed<'de>,
     {
         return seed.deserialize(&mut *self.de).map(Some);
+    }
+
+    fn size_hint(&self) -> Option<usize> {
+        // Return None if the size is negative somehow
+        return self.size.clone()?.value.try_into().ok();
+    }
+}
+
+impl<'de, 'a> MapAccess<'de> for Flatten<'a, 'de> {
+    type Error = Error;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
+    where
+        K: serde::de::DeserializeSeed<'de>,
+    {
+        panic!("The Minecraft packet format does not allow for reading keys.");
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        return seed.deserialize(&mut *self.de);
+    }
+
+    fn next_value<V>(&mut self) -> Result<V, Self::Error>
+    where
+        V: Deserialize<'de>,
+    {
+        return self.de.;
     }
 }
 
@@ -352,17 +396,17 @@ impl<'de> Deserialize<'de> for VarInt {
                 formatter.write_str("a var int")
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_map<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::SeqAccess<'de>,
+                A: serde::de::MapAccess<'de>,
             {
                 pub const CONTINUE_BIT: u8 = 0b10000000;
                 let mut buf = [0u8; 5];
                 let mut filled = 0;
                 loop {
-                    let next_byte: u8 = match seq.next_element()? {
-                        Some(n) => n,
-                        None => return Ok(Err(Error::MalformedVarInt)),
+                    let next_byte: u8 = match seq.next_value() {
+                        Ok(n) => n,
+                        Err(_) => return Ok(Err(Error::MalformedVarInt)),
                     };
                     buf[filled] = next_byte;
                     filled += 1;
@@ -375,7 +419,7 @@ impl<'de> Deserialize<'de> for VarInt {
             }
         }
 
-        let res = deserializer.deserialize_seq(VarIntVisitor)?;
+        let res = deserializer.deserialize_map(VarIntVisitor)?;
         return Ok(res.map_err(|e| SerdeError::custom(e))?);
     }
 }
@@ -396,15 +440,15 @@ impl<'de> Deserialize<'de> for VarLong {
                 formatter.write_str("a var long")
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_map<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::SeqAccess<'de>,
+                A: serde::de::MapAccess<'de>,
             {
                 pub const CONTINUE_BIT: u8 = 0b10000000;
                 let mut buf = [0u8; 10];
                 let mut filled = 0;
                 loop {
-                    let next_byte: u8 = match seq.next_element()? {
+                    let next_byte: u8 = match seq.next_value()? {
                         Some(n) => n,
                         None => return Ok(Err(Error::MalformedVarLong)),
                     };
@@ -419,7 +463,7 @@ impl<'de> Deserialize<'de> for VarLong {
             }
         }
 
-        let res = deserializer.deserialize_seq(VarLongVisitor)?;
+        let res = deserializer.deserialize_map(VarLongVisitor)?;
         return Ok(res.map_err(|e| SerdeError::custom(e))?);
     }
 }

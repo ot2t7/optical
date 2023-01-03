@@ -283,7 +283,7 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        return self.deserialize_seq(visitor);
+        return self.deserialize_tuple(fields.len(), visitor);
     }
 
     fn deserialize_enum<V>(
@@ -370,13 +370,6 @@ impl<'de, 'a> MapAccess<'de> for Flatten<'a, 'de> {
         V: serde::de::DeserializeSeed<'de>,
     {
         return seed.deserialize(&mut *self.de);
-    }
-
-    fn next_value<V>(&mut self) -> Result<V, Self::Error>
-    where
-        V: Deserialize<'de>,
-    {
-        return self.de.;
     }
 }
 

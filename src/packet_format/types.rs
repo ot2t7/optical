@@ -64,7 +64,7 @@ pub fn write_var_long(buf: &mut Vec<u8>, value: i64) -> Result<usize> {
 
 pub fn read_string(buf: &mut Cursor<Vec<u8>>) -> Result<String> {
     let len = read_var_int(buf)?;
-    let mut res = String::with_capacity(len.value as usize);
+    let mut res = String::with_capacity(len.value.try_into()?);
 
     for _ in 0..len.value {
         let mut byte = [0u8];

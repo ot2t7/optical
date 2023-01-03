@@ -122,6 +122,8 @@ async fn read_packet(sentinel: &mut Sentinel<'_>) -> Result<Option<Cursor<Vec<u8
         // Truncate it so the length is accurate
         packet.truncate(length_entire_packet);
 
+        std::fs::write("out", &packet).unwrap();
+
         return Ok(Some(Cursor::new(packet)));
     }
 }

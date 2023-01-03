@@ -13,6 +13,7 @@
 - tuple: each element of the tuple
 - map: **errors, this doesnt exist in the format**
 - struct: tuple of each value
+
 enum stuff:
 - unit variant: var int representing variant index, then nothing
 - newtype variant: var int representing variant index, then inner type

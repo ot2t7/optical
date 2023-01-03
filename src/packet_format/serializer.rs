@@ -5,7 +5,7 @@ use serde::{
 
 use super::{
     error::Error,
-    types::{write_var_int, write_var_long, MinecraftUuid, VarInt, VarLong},
+    types::{write_string, write_var_int, write_var_long, MinecraftUuid, VarInt, VarLong},
 };
 
 pub struct Serializer {
@@ -103,13 +103,12 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         return Ok(());
     }
 
-    fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-        self.output.extend(v.to_string().as_bytes());
-        return Ok(());
+    fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
+        return Err(Error::CharType);
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        self.output.extend(v.as_bytes());
+        write_string(&mut self.output, v).map_err(|_| Error::MalformedString)?;
         return Ok(());
     }
 
@@ -126,22 +125,23 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     where
         T: Serialize,
     {
-        return self.serialize_bool(true);
+        self.serialize_bool(true)?;
+        return value.serialize(self);
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
         return Ok(());
     }
 
-    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
         return Ok(());
     }
 
     fn serialize_unit_variant(
         self,
-        name: &'static str,
+        _name: &'static str,
         variant_index: u32,
-        variant: &'static str,
+        _variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
         write_size_or_index(self, variant_index)?;
         return Ok(());
@@ -149,7 +149,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_newtype_struct<T: ?Sized>(
         self,
-        name: &'static str,
+        _name: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
@@ -160,9 +160,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_newtype_variant<T: ?Sized>(
         self,
-        name: &'static str,
+        _name: &'static str,
         variant_index: u32,
-        variant: &'static str,
+        _variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
@@ -179,47 +179,47 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         return Ok(self);
     }
 
-    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         return Ok(self);
     }
 
     fn serialize_tuple_struct(
         self,
-        name: &'static str,
-        len: usize,
+        _name: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
         return Ok(self);
     }
 
     fn serialize_tuple_variant(
         self,
-        name: &'static str,
+        _name: &'static str,
         variant_index: u32,
-        variant: &'static str,
-        len: usize,
+        _variant: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
         write_size_or_index(self, variant_index)?;
         return Ok(self);
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        return Ok(self);
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        return Err(Error::MapType);
     }
 
     fn serialize_struct(
         self,
-        name: &'static str,
-        len: usize,
+        _name: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         return Ok(self);
     }
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
+        _name: &'static str,
         variant_index: u32,
-        variant: &'static str,
-        len: usize,
+        _variant: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         write_size_or_index(self, variant_index)?;
         return Ok(self);

@@ -1,20 +1,29 @@
 use std::io::{Cursor, Read};
 
 use super::error::Error;
+use super::tags::Boxed;
 use super::types::{read_string, read_var_int, read_var_long, MinecraftUuid, VarInt, VarLong};
-use serde::de::Visitor;
-use serde::de::{Error as SerdeError, MapAccess};
+use serde::de::Error as SerdeError;
+use serde::de::{DeserializeSeed, EnumAccess, VariantAccess, Visitor};
 use serde::{de::SeqAccess, Deserialize};
 
 pub struct Deserializer<'de> {
     input: &'de mut Cursor<Vec<u8>>,
-    /// Did this deserializer already process the packet id?
-    id_read: bool,
+    /// Is the next String element supposed to be deserialized
+    /// as a var int?
+    need_id_read: bool,
+    /// Is the next String element supposed to be deserialized
+    /// as a var int, and then mapped into a variant name?
+    need_id_variant: Option<&'static [&'static str]>,
 }
 
 impl<'de> Deserializer<'de> {
-    pub fn from_bytes(input: &'de mut Cursor<Vec<u8>>, id_read: bool) -> Self {
-        return Deserializer { input, id_read };
+    pub fn from_bytes(input: &'de mut Cursor<Vec<u8>>, need_id_read: bool) -> Self {
+        return Deserializer {
+            input,
+            need_id_read,
+            need_id_variant: None,
+        };
     }
 }
 
@@ -24,7 +33,7 @@ where
 {
     read_var_int(input).map_err(|_| Error::MalformedVarInt)?; // packet length
     read_var_int(input).map_err(|_| Error::MalformedVarInt)?; // packet id
-    let mut deserializer = Deserializer::from_bytes(input, true);
+    let mut deserializer = Deserializer::from_bytes(input, false);
     let t = T::deserialize(&mut deserializer)?;
     return Ok(t);
 }
@@ -35,7 +44,7 @@ where
     T: Deserialize<'a>,
 {
     read_var_int(input).map_err(|_| Error::MalformedVarInt)?; // packet length
-    let mut deserializer = Deserializer::from_bytes(input, false);
+    let mut deserializer = Deserializer::from_bytes(input, true);
     let t = T::deserialize(&mut deserializer)?;
     return Ok(t);
 }
@@ -43,11 +52,11 @@ where
 impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     type Error = Error;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        return Err(Error::ParsingAny);
+        return Err(Error::AnyType);
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -65,14 +74,22 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut bytes = [0u8; 1];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedI8)?;
+        return visitor.visit_i8(i8::from_be_bytes(bytes));
     }
 
     fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut bytes = [0u8; 2];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedI16)?;
+        return visitor.visit_i16(i16::from_be_bytes(bytes));
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -123,35 +140,51 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut bytes = [0u8; 4];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedU32)?;
+        return visitor.visit_u32(u32::from_be_bytes(bytes));
     }
 
     fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut bytes = [0u8; 8];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedU64)?;
+        return visitor.visit_u64(u64::from_be_bytes(bytes));
     }
 
     fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut bytes = [0u8; 4];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedF32)?;
+        return visitor.visit_f32(f32::from_be_bytes(bytes));
     }
 
     fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut bytes = [0u8; 8];
+        self.input
+            .read_exact(&mut bytes)
+            .map_err(|_| Error::MalformedF64)?;
+        return visitor.visit_f64(f64::from_be_bytes(bytes));
     }
 
-    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return Err(Error::CharType);
     }
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -165,13 +198,26 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        if self.id_read == false {
-            self.id_read = true;
+        if self.need_id_read == true {
+            // Need to read some kind of var int id
+            self.need_id_read = false;
+            if let Some(variants) = self.need_id_variant {
+                // Need to read some kind of var int
+                // id and map into an enum variant
+                self.need_id_variant = None;
+                let variant_index: usize = read_var_int(self.input)
+                    .map_err(|_| Error::MalformedVarInt)?
+                    .value
+                    .try_into()
+                    .map_err(|_| Error::MalformedVarInt)?;
+                return visitor.visit_string(variants[variant_index].to_string());
+            }
             let id = read_var_int(self.input)
                 .map_err(|_| Error::MalformedVarInt)?
                 .value;
             return visitor.visit_string(id.to_string());
         }
+        // Just need to read a string;
         return visitor.visit_string(read_string(self.input).map_err(|_| Error::MalformedString)?);
     }
 
@@ -179,14 +225,18 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return self.deserialize_byte_buf(visitor);
     }
 
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        let mut rest_of_input = vec![];
+        self.input
+            .read_to_end(&mut rest_of_input)
+            .map_err(|_| Error::NoMoreBytes)?;
+        return visitor.visit_byte_buf(rest_of_input);
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -209,74 +259,67 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return visitor.visit_unit();
     }
 
     fn deserialize_unit_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return visitor.visit_unit();
     }
 
     fn deserialize_newtype_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return visitor.visit_newtype_struct(self);
     }
 
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        // Sequences are a collection of each adjacent element,
-        // with no padding or keys. The collection is prefixed with
-        // the length of the sequence as a varint.
         return visitor.visit_seq(Flatten::new(self, true)?);
     }
 
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        // Tuples are a collection of each adjacent element, with
-        // no padding or keys. The collection has no length prefix.
         return visitor.visit_seq(Flatten::new(self, false)?);
     }
 
     fn deserialize_tuple_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         len: usize,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return self.deserialize_tuple(len, visitor);
     }
 
-    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        // Maps are a collection of each adjacent element, with no
-        // padding or keys. The collection has no length prefix.
-        return visitor.visit_map(Flatten::new(self, false)?);
+        return Err(Error::MapType);
     }
 
     fn deserialize_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
@@ -288,28 +331,33 @@ impl<'de, 'a> serde::de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_enum<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        // The var int id which will be requested next will come in
+        // as a string. Communicate this to the parser to make sure
+        // it's parsed as a normal var int, and not a string.
+        self.need_id_read = true;
+        self.need_id_variant = Some(variants);
+        return visitor.visit_enum(Enum::new(self));
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return self.deserialize_string(visitor);
     }
 
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        return Err(Error::AnyType);
     }
 
     // Hints to types like UUID's that this format is not self-describing/human readable
@@ -355,21 +403,60 @@ impl<'de, 'a> SeqAccess<'de> for Flatten<'a, 'de> {
     }
 }
 
-impl<'de, 'a> MapAccess<'de> for Flatten<'a, 'de> {
+struct Enum<'a, 'de: 'a> {
+    de: &'a mut Deserializer<'de>,
+}
+
+impl<'a, 'de> Enum<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>) -> Self {
+        return Enum { de };
+    }
+}
+
+impl<'de, 'a> EnumAccess<'de> for Enum<'a, 'de> {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Error>
+    where
+        V: DeserializeSeed<'de>,
+    {
+        println!("Yippee! Time to deserialize variant!");
+        let val = seed.deserialize(&mut *self.de)?;
+        return Ok((val, self));
+    }
+}
+
+impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
     type Error = Error;
 
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
-    where
-        K: serde::de::DeserializeSeed<'de>,
-    {
-        panic!("The Minecraft packet format does not allow for reading keys.");
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        return Ok(());
     }
 
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
     where
-        V: serde::de::DeserializeSeed<'de>,
+        T: DeserializeSeed<'de>,
     {
-        return seed.deserialize(&mut *self.de);
+        return seed.deserialize(self.de);
+    }
+
+    fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        return serde::de::Deserializer::deserialize_tuple(self.de, len, visitor);
+    }
+
+    fn struct_variant<V>(
+        self,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        return serde::de::Deserializer::deserialize_tuple(self.de, fields.len(), visitor);
     }
 }
 
@@ -389,17 +476,17 @@ impl<'de> Deserialize<'de> for VarInt {
                 formatter.write_str("a var int")
             }
 
-            fn visit_map<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::MapAccess<'de>,
+                A: serde::de::SeqAccess<'de>,
             {
                 pub const CONTINUE_BIT: u8 = 0b10000000;
                 let mut buf = [0u8; 5];
                 let mut filled = 0;
                 loop {
-                    let next_byte: u8 = match seq.next_value() {
-                        Ok(n) => n,
-                        Err(_) => return Ok(Err(Error::MalformedVarInt)),
+                    let next_byte: u8 = match seq.next_element()? {
+                        Some(n) => n,
+                        None => return Ok(Err(Error::MalformedVarInt)),
                     };
                     buf[filled] = next_byte;
                     filled += 1;
@@ -412,7 +499,8 @@ impl<'de> Deserialize<'de> for VarInt {
             }
         }
 
-        let res = deserializer.deserialize_map(VarIntVisitor)?;
+        // The len is technically unknown, so just say its zero.
+        let res = deserializer.deserialize_tuple(0, VarIntVisitor)?;
         return Ok(res.map_err(|e| SerdeError::custom(e))?);
     }
 }
@@ -433,15 +521,15 @@ impl<'de> Deserialize<'de> for VarLong {
                 formatter.write_str("a var long")
             }
 
-            fn visit_map<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::MapAccess<'de>,
+                A: serde::de::SeqAccess<'de>,
             {
                 pub const CONTINUE_BIT: u8 = 0b10000000;
                 let mut buf = [0u8; 10];
                 let mut filled = 0;
                 loop {
-                    let next_byte: u8 = match seq.next_value()? {
+                    let next_byte: u8 = match seq.next_element()? {
                         Some(n) => n,
                         None => return Ok(Err(Error::MalformedVarLong)),
                     };
@@ -456,7 +544,8 @@ impl<'de> Deserialize<'de> for VarLong {
             }
         }
 
-        let res = deserializer.deserialize_map(VarLongVisitor)?;
+        // The len is technically unknown, so just say its zero.
+        let res = deserializer.deserialize_tuple(0, VarLongVisitor)?;
         return Ok(res.map_err(|e| SerdeError::custom(e))?);
     }
 }

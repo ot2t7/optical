@@ -4,7 +4,7 @@ use crate::{
     packet_defs::{Handshake, LoginStart, PingRequest, StatusRequest},
     packet_format::{
         deserializer,
-        tags::VoidPacket,
+        tags::{StatusPacket, VoidPacket},
         types::{read_var_int, write_string, write_var_int},
     },
 };
@@ -139,7 +139,7 @@ async fn manage_connection(mut socket: &mut TcpStream) -> Result<()> {
     if handshake.next_state.value == 1 {
         // Recieve a status packet
         let reader = &mut unwrap_some_or!(read_packet(&mut sentinel).await?, return Ok(()));
-        let status: StatusRequest = deserializer::from_bytes(reader)?;
+        let status: Box<dyn StatusPacket> = deserializer::from_bytes_generic(reader)?;
         println!("{:#?}", status);
 
         // Recieve a ping request

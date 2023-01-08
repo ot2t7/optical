@@ -21,5 +21,3 @@ enum stuff:
 - struct variant: var int representing variant index, then tuple
 
 # TODO
- - Rethink the EventReader interface, most systems will query for one type of packet
- - Rewrite the absolutely horrid `packet_broadcast` system

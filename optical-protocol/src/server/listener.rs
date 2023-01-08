@@ -9,6 +9,7 @@ use async_recursion::async_recursion;
 use tokio::{
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
+    runtime::Runtime,
     task::JoinHandle,
 };
 use unwrap_or::unwrap_some_or;
@@ -26,11 +27,14 @@ pub struct Connection {
     pub packets: Receiver<Cursor<Vec<u8>>>,
 }
 
-pub fn start() -> Result<Receiver<Connection>> {
+pub fn start(rt: &mut Runtime) -> Result<Receiver<Connection>> {
     let (connections_sender, connections_receiver): (Sender<Connection>, Receiver<Connection>) =
         mpsc::channel();
 
-    let _: JoinHandle<Result<()>> = tokio::spawn(async move {
+    println!("time to listen???");
+
+    let _: JoinHandle<Result<()>> = rt.spawn(async move {
+        println!("time to listen!");
         let listener = TcpListener::bind("0.0.0.0:8080").await?;
 
         loop {

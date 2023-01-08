@@ -1,7 +1,6 @@
 use std::io::{Cursor, Read};
 
 use super::error::Error;
-use super::tags::Boxed;
 use super::types::{read_string, read_var_int, read_var_long, MinecraftUuid, VarInt, VarLong};
 use serde::de::Error as SerdeError;
 use serde::de::{DeserializeSeed, EnumAccess, VariantAccess, Visitor};

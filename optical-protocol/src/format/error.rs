@@ -8,6 +8,7 @@ pub enum Error {
     #[error("{0}")]
     Message(String),
 
+    // Deserialization/serialization errors
     #[error("'any' types do not exist in this format")]
     AnyType,
     #[error("map types do not exist in this format")]
@@ -42,6 +43,10 @@ pub enum Error {
     MalformedF64,
     #[error("failed parsing a boolean")]
     MalformedBool,
+
+    // Serialization errors
+    #[error("attempted serializing a sequence with no known length")]
+    UnsizedSeq,
 }
 
 impl ser::Error for Error {

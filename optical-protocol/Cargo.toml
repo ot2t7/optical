@@ -1,0 +1,18 @@
+[package]
+name = "optical-protocol"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.68"
+async-recursion = "1.0.0"
+log = "0.4.17"
+serde = { version = "1.0.151", features = ["derive"] }
+thiserror = "1.0.38"
+tokio = { version = "1", features = ["full"] }
+typetag = "0.2.4"
+unwrap_or = "1.0.0"
+uuid = { version = "1.2.2", features = ["v4", "serde"] }
+wasabi_leb128 = "0.4.0"

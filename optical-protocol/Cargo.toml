@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.68"
 async-recursion = "1.0.0"
+downcast-rs = "1.2.0"
 log = "0.4.17"
 serde = { version = "1.0.151", features = ["derive"] }
 thiserror = "1.0.38"

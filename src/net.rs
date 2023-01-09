@@ -1,13 +1,16 @@
-use bevy_ecs::prelude::*;
+use bevy_ecs::{prelude::*, world::EntityMut};
 use log::{error, info};
 use optical_protocol::{
     format::{
         deserializer,
         tags::{LoginPacket, PlayPacket, StatusPacket, VoidPacket},
+        types::VarInt,
     },
+    packets::void::serverbound::Handshake,
     server::{Connection, ProtocolState},
 };
 use std::{
+    any::Any,
     io::Cursor,
     sync::{
         mpsc::{Receiver, TryRecvError},
@@ -45,12 +48,12 @@ impl From<Connection> for NetworkConnected {
 }
 
 pub struct PacketReceived<T: ?Sized> {
-    pub target: u32,
+    pub target: Entity,
     pub content: Box<T>,
 }
 
 macro_rules! recv_packet {
-    ($w:ident, $packet:ident, $entity:ident) => {{
+    ($w:ident, $packet:ident, $entity:ident, $stop:literal) => {{
         let deserialized_packet = match deserializer::from_bytes_generic(&mut $packet) {
             Ok(n) => n,
             Err(e) => {
@@ -59,10 +62,37 @@ macro_rules! recv_packet {
             }
         };
         $w.send(PacketReceived {
-            target: $entity.index(),
+            target: $entity,
             content: deserialized_packet,
-        })
+        });
+        if $stop == true {
+            break;
+        }
     }};
+}
+
+pub fn system1(
+    mut reader: EventReader<PacketReceived<dyn VoidPacket>>,
+    mut query: Query<(Entity, &mut NetworkConnected)>,
+) {
+    for handshake in reader.iter() {
+        match query.get_mut(handshake.target) {
+            Ok((_, mut conn)) => {
+                let d = handshake
+                    .content
+                    .as_any()
+                    .downcast_ref::<Handshake>()
+                    .unwrap();
+
+                match d.next_state.value {
+                    1 => conn.protocol_state = ProtocolState::Status,
+                    2 => conn.protocol_state = ProtocolState::Login,
+                    _ => {}
+                };
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn packet_broadcaster(
@@ -74,19 +104,22 @@ pub fn packet_broadcaster(
     mut commands: Commands,
 ) {
     for (entity, conn) in &mut query {
-        info!("Found a network connected entity: {}", entity.index());
         loop {
             match conn.packets.lock().unwrap().try_recv() {
-                Ok(mut packet) => {
-                    info!("Found a packet from network connected entity!");
-                    match conn.protocol_state {
-                        ProtocolState::Void => recv_packet!(void_writer, packet, entity),
-                        ProtocolState::Status => recv_packet!(status_writer, packet, entity),
-                        ProtocolState::Login => recv_packet!(login_writer, packet, entity),
-                        ProtocolState::Play => recv_packet!(play_writer, packet, entity),
-                    }
+                Ok(mut packet) => match conn.protocol_state {
+                    // Broadcast void/status/login packets once / tick / client, because a protocol
+                    // state switch may occur after each packet, forcing the next packet to go into
+                    // the wrong event queue.
+                    ProtocolState::Void => recv_packet!(void_writer, packet, entity, true),
+                    ProtocolState::Status => recv_packet!(status_writer, packet, entity, true),
+                    ProtocolState::Login => recv_packet!(login_writer, packet, entity, true),
+                    // The protocol state doesn't switch anymore in the play state.
+                    ProtocolState::Play => recv_packet!(play_writer, packet, entity, false),
+                },
+                Err(TryRecvError::Disconnected) => {
+                    commands.entity(entity).despawn();
+                    break;
                 }
-                Err(TryRecvError::Disconnected) => commands.entity(entity).despawn(),
                 Err(_) => break,
             }
         }

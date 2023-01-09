@@ -66,7 +66,8 @@ fn main() -> Result<()> {
             .with_system(Events::<PacketReceived<dyn VoidPacket>>::update_system)
             .with_system(Events::<PacketReceived<dyn StatusPacket>>::update_system)
             .with_system(Events::<PacketReceived<dyn LoginPacket>>::update_system)
-            .with_system(Events::<PacketReceived<dyn PlayPacket>>::update_system),
+            .with_system(Events::<PacketReceived<dyn PlayPacket>>::update_system)
+            .with_system(net::system1),
     );
 
     // Run all systems

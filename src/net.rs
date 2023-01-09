@@ -1,4 +1,4 @@
-use bevy_ecs::{prelude::*, world::EntityMut};
+use bevy_ecs::prelude::*;
 use log::{error, info};
 use optical_protocol::{
     format::{
@@ -10,7 +10,6 @@ use optical_protocol::{
     server::{Connection, ProtocolState},
 };
 use std::{
-    any::Any,
     io::Cursor,
     sync::{
         mpsc::{Receiver, TryRecvError},

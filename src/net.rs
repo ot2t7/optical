@@ -1,10 +1,9 @@
 use bevy_ecs::prelude::*;
-use log::{error, info};
+use log::error;
 use optical_protocol::{
     format::{
         deserializer,
         tags::{LoginPacket, PlayPacket, StatusPacket, VoidPacket},
-        types::VarInt,
     },
     packets::void::serverbound::Handshake,
     server::{Connection, ProtocolState},
@@ -40,8 +39,8 @@ pub struct NetworkConnected {
 impl From<Connection> for NetworkConnected {
     fn from(value: Connection) -> Self {
         return NetworkConnected {
-            protocol_state: value.protocol_state,
-            packets: Mutex::new(value.packets),
+            protocol_state: value.0,
+            packets: Mutex::new(value.1),
         };
     }
 }
@@ -112,7 +111,8 @@ pub fn packet_broadcaster(
                     ProtocolState::Void => recv_packet!(void_writer, packet, entity, true),
                     ProtocolState::Status => recv_packet!(status_writer, packet, entity, true),
                     ProtocolState::Login => recv_packet!(login_writer, packet, entity, true),
-                    // The protocol state doesn't switch anymore in the play state.
+                    // The protocol state doesn't switch anymore in the play state. Process packets
+                    // in batches.
                     ProtocolState::Play => recv_packet!(play_writer, packet, entity, false),
                 },
                 Err(TryRecvError::Disconnected) => {

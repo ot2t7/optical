@@ -1,3 +1,11 @@
+//! Deserializer for the Minecraft protocol format.
+//!
+//! **Note:** When deserializing packets as a Boxed trait object, like `Box<dyn PlayPacket>` with typetag, the
+//! [`from_bytes_generic`] function should be used. When deserializing concrete packet types like `LoginStart`,
+//! the [`from_bytes`] function should be used. This is because deserializing generic packets requires parsing a
+//! packet id in order to identify the packet, while concrete packet types should already have a known packet id.
+//! Misusing these functions will result in indescribed behavior.
+
 use std::io::{Cursor, Read};
 
 use super::error::Error;

@@ -14,18 +14,19 @@ use tokio::{
 };
 use unwrap_or::unwrap_some_or;
 
+/// The current state that a connection between a client and the server is in.
 pub enum ProtocolState {
-    /// Before the status and login states
+    /// The client and server handshake
     Void,
+    /// The server provides some information about itself for the Minecraft server list
     Status,
+    /// The client attempts to join the server
     Login,
+    /// The client is playing on the server
     Play,
 }
 
-pub struct Connection {
-    pub protocol_state: ProtocolState,
-    pub packets: Receiver<Cursor<Vec<u8>>>,
-}
+pub type Connection = (ProtocolState, Receiver<Cursor<Vec<u8>>>);
 
 pub fn start(rt: &mut Runtime) -> Result<Receiver<Connection>> {
     let (connections_sender, connections_receiver): (Sender<Connection>, Receiver<Connection>) =
@@ -49,10 +50,7 @@ pub fn start(rt: &mut Runtime) -> Result<Receiver<Connection>> {
                 Receiver<Cursor<Vec<u8>>>,
             ) = mpsc::channel();
 
-            match connections_sender.send(Connection {
-                protocol_state: ProtocolState::Void,
-                packets: packet_receiver,
-            }) {
+            match connections_sender.send((ProtocolState::Void, packet_receiver)) {
                 Err(e) => {
                     error!(target: "net", "Failed connecting a client to the world: {}", e);
                     continue;

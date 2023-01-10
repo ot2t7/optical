@@ -1,11 +1,12 @@
-use serde::{
-    ser::{self, Error as SerdeError},
-    Serialize,
-};
+//! Serializer for the Minecraft protocol format.
 
 use super::{
     error::Error,
     types::{write_string, write_var_int, write_var_long, MinecraftUuid, VarInt, VarLong},
+};
+use serde::{
+    ser::{self, Error as SerdeError},
+    Serialize,
 };
 
 pub struct Serializer {

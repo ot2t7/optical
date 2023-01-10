@@ -1,3 +1,5 @@
+//! Common types used in the Minecraft protocol format.
+
 use std::{
     fmt::Debug,
     io::{Cursor, Read},

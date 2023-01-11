@@ -3,13 +3,26 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 
-use crate::format::types::read_var_int;
-use anyhow::Result;
+use crate::{
+    format::tags::{ClientLoginPacket, LoginPacket},
+    packets::login::serverbound::EncryptionResponse,
+};
+use crate::{
+    format::{deserializer, serializer, types::read_var_int},
+    packets::{
+        login::{clientbound::EncryptionRequest, serverbound::LoginStart},
+        void::serverbound::Handshake,
+    },
+};
+use anyhow::{anyhow, Result};
 use async_recursion::async_recursion;
+use pkcs1::EncodeRsaPublicKey;
+use rsa::{PaddingScheme, RsaPrivateKey, RsaPublicKey};
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     runtime::Runtime,
+    sync::Mutex,
     task::JoinHandle,
 };
 use unwrap_or::unwrap_some_or;
@@ -32,10 +45,13 @@ pub fn start(rt: &mut Runtime) -> Result<Receiver<Connection>> {
     let (connections_sender, connections_receiver): (Sender<Connection>, Receiver<Connection>) =
         mpsc::channel();
 
-    println!("time to listen???");
+    // Generate a public key
+    const bits: usize = 1024;
+    let mut rng = rand::thread_rng();
+    let private_key = RsaPrivateKey::new(&mut rng, bits)?;
+    let public_key = RsaPublicKey::from(&private_key);
 
     let _: JoinHandle<Result<()>> = rt.spawn(async move {
-        println!("time to listen!");
         let listener = TcpListener::bind("0.0.0.0:8080").await?;
 
         loop {
@@ -50,17 +66,81 @@ pub fn start(rt: &mut Runtime) -> Result<Receiver<Connection>> {
                 Receiver<Cursor<Vec<u8>>>,
             ) = mpsc::channel();
 
-            match connections_sender.send((ProtocolState::Void, packet_receiver)) {
-                Err(e) => {
-                    error!(target: "net", "Failed connecting a client to the world: {}", e);
-                    continue;
-                }
-                _ => {}
-            };
+            // Clone the sender for this client
+            let connections_sender = connections_sender.clone();
+
+            // Clone crypto
+            let public_key = public_key.clone();
+            let private_key = private_key.clone();
 
             let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
-                // Create a buffered socket
                 let mut socket = new_buffered_socket(socket);
+
+                // First, accept a handshake packet
+                let handshake: Handshake = deserializer::from_bytes(&mut unwrap_some_or!(
+                    read_packet(&mut socket).await?,
+                    return Ok(())
+                ))?;
+
+                // Client wants the Status state
+                if handshake.next_state.value == 1 {
+                    // We can't respond with this packet as we don't have any information about
+                    // the current world. Let's send this client over to the receiver.
+                    connections_sender
+                        .send((ProtocolState::Status, packet_receiver))
+                        .map_err(|e| anyhow!("{e}"))?;
+                    loop {
+                        // Read a packet
+                        let packet =
+                            unwrap_some_or!(read_packet(&mut socket).await?, return Ok(()));
+
+                        // Send it across the channel
+                        packet_sender.send(packet)?;
+                    }
+                } else {
+                    // Client wants to login into the server
+
+                    // Process the Login Start request
+                    let login_start: LoginStart = deserializer::from_bytes(&mut unwrap_some_or!(
+                        read_packet(&mut socket).await?,
+                        return Ok(())
+                    ))?;
+
+                    println!("Seems {} wants to login.", login_start.name);
+
+                    let verify_token = rand::random::<[u8; 4]>().to_vec();
+
+                    println!("Sending verify token {:?}", verify_token);
+
+                    // Send an encryption request
+                    let encryption_request = EncryptionRequest {
+                        server_id: String::new(),
+                        public_key: public_key.to_pkcs1_der()?.into_vec(),
+                        verify_token: verify_token,
+                    };
+                    socket
+                        .socket
+                        .write_all(&mut serializer::to_bytes(
+                            &encryption_request,
+                            encryption_request.packet_id(),
+                        )?)
+                        .await?;
+
+                    println!("Sent!");
+
+                    // Process the Encryption Response packet
+                    let encryption_response: EncryptionResponse = deserializer::from_bytes(
+                        &mut unwrap_some_or!(read_packet(&mut socket).await?, return Ok(())),
+                    )?;
+
+                    println!(
+                        "Got back verify token {:?}",
+                        private_key.decrypt(
+                            PaddingScheme::new_pkcs1v15_encrypt(),
+                            &encryption_response.verify_token
+                        )?
+                    );
+                }
 
                 loop {
                     // Read a packet

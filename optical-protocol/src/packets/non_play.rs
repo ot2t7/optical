@@ -18,7 +18,7 @@ pub mod void {
 
 pub mod status {
     pub mod clientbound {
-        use crate::format::tags::StatusPacket;
+        use crate::format::tags::ClientStatusPacket;
         use serde::Deserialize;
         use serde::Serialize;
 
@@ -27,14 +27,14 @@ pub mod status {
             pub json_response: String,
         }
         #[typetag::serde(name = "0")]
-        impl StatusPacket for StatusResponse {}
+        impl ClientStatusPacket for StatusResponse {}
 
         #[derive(Serialize, Deserialize, Debug)]
         pub struct PingResponse {
             pub payload: i64,
         }
         #[typetag::serde(name = "1")]
-        impl StatusPacket for PingResponse {}
+        impl ClientStatusPacket for PingResponse {}
     }
 
     pub mod serverbound {
@@ -58,8 +58,8 @@ pub mod status {
 pub mod login {
     pub mod clientbound {
         use crate::format::{
-            tags::LoginPacket,
-            types::{MinecraftUuid, VarInt},
+            tags::{ClientLoginPacket, LoginPacket},
+            types::{Bytes, MinecraftUuid, VarInt},
         };
         use serde::{Deserialize, Serialize};
 
@@ -68,7 +68,7 @@ pub mod login {
             pub reason: String,
         }
         #[typetag::serde(name = "0")]
-        impl LoginPacket for Disconnect {}
+        impl ClientLoginPacket for Disconnect {}
 
         #[derive(Serialize, Deserialize, Debug)]
         pub struct EncryptionRequest {
@@ -77,7 +77,7 @@ pub mod login {
             pub verify_token: Vec<u8>,
         }
         #[typetag::serde(name = "1")]
-        impl LoginPacket for EncryptionRequest {}
+        impl ClientLoginPacket for EncryptionRequest {}
 
         #[derive(Serialize, Deserialize, Debug)]
         pub enum LoginSuccessProperties {
@@ -108,23 +108,23 @@ pub mod login {
             properties: LoginSuccessProperties,
         }
         #[typetag::serde(name = "2")]
-        impl LoginPacket for LoginSuccess {}
+        impl ClientLoginPacket for LoginSuccess {}
 
         #[derive(Serialize, Deserialize, Debug)]
         pub struct SetCompression {
             pub threshold: VarInt,
         }
         #[typetag::serde(name = "3")]
-        impl LoginPacket for SetCompression {}
+        impl ClientLoginPacket for SetCompression {}
 
         #[derive(Serialize, Deserialize, Debug)]
         pub struct LoginPluginRequest {
             message_id: VarInt,
             channel: String,
-            data: Byte,
+            data: Bytes,
         }
         #[typetag::serde(name = "4")]
-        impl LoginPacket for LoginPluginRequest {}
+        impl ClientLoginPacket for LoginPluginRequest {}
     }
 
     pub mod serverbound {
@@ -139,5 +139,13 @@ pub mod login {
         }
         #[typetag::serde(name = "0")]
         impl LoginPacket for LoginStart {}
+
+        #[derive(Serialize, Deserialize, Debug)]
+        pub struct EncryptionResponse {
+            pub shared_secret: Vec<u8>,
+            pub verify_token: Vec<u8>,
+        }
+        #[typetag::serde(name = "1")]
+        impl LoginPacket for EncryptionResponse {}
     }
 }

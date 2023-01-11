@@ -2,7 +2,7 @@
 
 use super::{
     error::Error,
-    types::{write_string, write_var_int, write_var_long, MinecraftUuid, VarInt, VarLong},
+    types::{write_string, write_var_int, write_var_long, Bytes, MinecraftUuid, VarInt, VarLong},
 };
 use serde::{
     ser::{self, Error as SerdeError},
@@ -396,5 +396,14 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
         return Ok(());
+    }
+}
+
+impl Serialize for Bytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        return serializer.serialize_bytes(&self.0);
     }
 }

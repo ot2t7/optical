@@ -87,3 +87,10 @@ pub fn write_string(buf: &mut Vec<u8>, string_to_pack: impl Into<String>) -> Res
 
 #[derive(Debug)]
 pub struct MinecraftUuid(pub uuid::Uuid);
+
+/// A wrapper around a `Vec<u8>`, represents some bytes.
+///
+/// This type was created to be deserialized and serialized as a Serde byte buffer. A `&[u8]` can achieve
+/// this, but having a `&[u8]` requires a generic lifetime parameter, which `typetag` doesn't support.
+#[derive(Debug)]
+pub struct Bytes(pub Vec<u8>);

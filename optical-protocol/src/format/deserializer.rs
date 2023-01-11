@@ -9,7 +9,9 @@
 use std::io::{Cursor, Read};
 
 use super::error::Error;
-use super::types::{read_string, read_var_int, read_var_long, MinecraftUuid, VarInt, VarLong};
+use super::types::{
+    read_string, read_var_int, read_var_long, Bytes, MinecraftUuid, VarInt, VarLong,
+};
 use serde::de::Error as SerdeError;
 use serde::de::{DeserializeSeed, EnumAccess, VariantAccess, Visitor};
 use serde::{de::SeqAccess, Deserialize};
@@ -564,5 +566,38 @@ impl<'de> Deserialize<'de> for MinecraftUuid {
     {
         let inner = uuid::serde::compact::deserialize(deserializer)?;
         return Ok(MinecraftUuid(inner));
+    }
+}
+
+struct BytesVisitor;
+
+impl<'de> Visitor<'de> for BytesVisitor {
+    type Value = Bytes;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("bytes")
+    }
+
+    fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+    where
+        E: SerdeError,
+    {
+        return Ok(Bytes(v.to_vec()));
+    }
+
+    fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+    where
+        E: SerdeError,
+    {
+        return Ok(Bytes(v));
+    }
+}
+
+impl<'de> Deserialize<'de> for Bytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        return deserializer.deserialize_bytes(BytesVisitor);
     }
 }
